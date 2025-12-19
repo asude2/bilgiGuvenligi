@@ -52,8 +52,14 @@ def kayit_ol():   #arayüzdeki değerleri alıyoruz.
         #3. Önce komutu gönder (KAYIT|kullanici_adi)
         komut = f"KAYIT|{k_adi}"
         istemci.send(komut.encode())
+
+        cevap = istemci.recv(1024).decode()
+        if cevap.startswith("HATA"):
+            messagebox.showerror("Hata", cevap.split("|")[1])
+            istemci.close()
+            return # Fonksiyondan çık, resmi gönderme!
+
         #sunucunun komutu işlemesi için çok kısa bekle
-        import time
         time.sleep(0.2)
         #4. Hazırlanan şifreli resmi byte byte gönder
         with open(hazir_resim, "rb") as f:
@@ -62,7 +68,7 @@ def kayit_ol():   #arayüzdeki değerleri alıyoruz.
                 if not byte_verisi: break
                 istemci.send(byte_verisi)
         
-        messagebox.showinfo("Başarılı", "Kayıt verileri sunucuya gönderildi!")
+        messagebox.showinfo("Başarılı", "Kayıt başarıyla tamamlandı!")
         istemci.close()
     except Exception as e:
         messagebox.showerror("Hata", f"Bağlantı hatası: {e}")
@@ -71,41 +77,31 @@ def kayit_ol():   #arayüzdeki değerleri alıyoruz.
 def giris_yap():
     k_adi = entry_kullanici.get()
     sifre = entry_sifre.get()
-    resim_yolu = label_resim_yolu.cget("text")
     
-    if not k_adi or not sifre or "Seçilmedi" in resim_yolu:
+    if not k_adi or not sifre:
         messagebox.showwarning("Hata", "Lütfen tüm alanları doldurun!")
         return
 
     try:
-        #şifreyi resme gizle
-        hazir_resim = lsb_gizle(resim_yolu, sifre, "login_gonderilecek.png")
         istemci = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         istemci.connect(('localhost', 12345))
-        istemci.send(f"LOGIN|{k_adi}".encode())
-        time.sleep(0.2)
-        #resmi gönder
-        with open(hazir_resim, "rb") as f:
-            while True:
-                parca = f.read(1024)
-                if not parca: break
-                istemci.send(parca)
-        istemci.shutdown(socket.SHUT_WR) #gönderim bitti
-        #sunucudan gelen kullanıcı listesini al
-        cevap = istemci.recv(4096).decode()
-        
+        veri=f"LOGIN|{k_adi}|{sifre}"
+        istemci.send(veri.encode())
+        cevap = istemci.recv(4096).decode() #sunucudan cevap bekliyoruz.
+
         if cevap.startswith("BASARILI"):
-            liste = cevap.split("|")[1]
-            temiz_liste=liste.replace(',','\n')
+            parcalar = cevap.split("|")
+            liste = parcalar[1] if len(parcalar) > 1 else ""
+            temiz_liste = liste.replace(',', '\n')
             messagebox.showinfo("Giriş Başarılı", f"Sistemdeki Kullanıcılar:\n{temiz_liste}")
-            # Burada ileride mesajlaşma penceresini açacağız
         else:
-            messagebox.showerror("Hata", cevap.split("|")[1])
+            hata_mesaji = cevap.split("|")[1] if "|" in cevap else "Bilinmeyen hata"
+            messagebox.showerror("Hata", hata_mesaji)
+            
             
         istemci.close()
     except Exception as e:
         messagebox.showerror("Hata", f"Giriş sırasında hata: {e}")
-
 
 
 
@@ -117,7 +113,7 @@ def resim_sec():
 
         ############ ARAYÜZ TASARIMI ############
 root = Tk()
-root.title("Kayıt")
+root.title("Kayıt Ol / Giriş Yap")
 root.geometry("400x300")
 
 Label(root, text="Kullanıcı Adı:").pack(pady=5)
@@ -128,12 +124,17 @@ Label(root, text="Şifre (Resme Gizlenecek):").pack(pady=5)
 entry_sifre = Entry(root, show="*") #şifreyi yıldızlı gösteriyor.
 entry_sifre.pack()
 
-Button(root, text="Kayıt İçin Resim Seç", command=resim_sec).pack(pady=10)
-label_resim_yolu = Label(root, text="Resim Seçilmedi", fg="blue")
+# Resim seçme alanı (Sadece kayıt için olduğunu belirten bir etiket ekledik)
+Label(root, text="--- Kayıt İşlemi İçin Resim Gerekli ---", fg="gray").pack(pady=5)
+Button(root, text="Kayıt İçin Resim Seç", command=resim_sec).pack()
+label_resim_yolu = Label(root, text="Resim Seçilmedi", fg="blue", font=("Arial", 8))
 label_resim_yolu.pack()
 
-Button(root, text="KAYIT OL", command=kayit_ol, bg="green", fg="white").pack(pady=20)
-Button(root, text="GİRİŞ YAP", command=giris_yap, bg="blue", fg="white").pack(pady=5)
+# Butonlar
+Button(root, text="GİRİŞ YAP", command=giris_yap, bg="blue", fg="white", width=20).pack(pady=10)
+Button(root, text="KAYIT OL", command=kayit_ol, bg="green", fg="white", width=20).pack()
 
 
 root.mainloop()
+
+

@@ -116,21 +116,17 @@ def sunucuyu_baslat():
 
              ####### GİRİŞ KISMI ###########
         elif data.startswith("LOGIN"):
-            k_adi = data.split("|")[1]
-            print(f"Giriş isteği geldi: {k_adi}. Resim bekleniyor...")
+            parcalar=data.split("|")
 
-            baglanti.settimeout(2.0)
-            try:
-                with open("login_resim.png", "wb") as f:
-                    while True:
-                        l = baglanti.recv(1024)
-                        if not l: break
-                        f.write(l)
-            except socket.timeout:
-                pass 
+            if len(parcalar) < 3:
+                baglanti.send("HATA|Eksik bilgi gönderildi!".encode())
+                baglanti.close()
+                continue
+
+            k_adi = parcalar[1]
+            girilen_sifre = parcalar[2]
+            print(f"Giriş isteği geldi: {k_adi}. Şifre kontrol ediliyor...")
             
-            #1. Resimden şifreyi çöz 
-            girilen_sifre = resimden_sifre_coz("login_resim.png")
             #2.Veritabanından bu kullanıcının gerçek şifresini çek
             conn = sqlite3.connect("sistem.db")
             cursor = conn.cursor()
@@ -140,7 +136,7 @@ def sunucuyu_baslat():
             if sonuc and sonuc[0] == girilen_sifre:
                 #3. Giriş başarılıysa tüm kullanıcıları al
                 cursor.execute("SELECT kullanici_adi FROM kullanicilar")
-                kullanicilar = cursor.fetchall() # Örn: [('merve',), ('ali',)]
+                kullanicilar = cursor.fetchall() 
                 
                 kullanici_listesi = ",".join([k[0] for k in kullanicilar])
                 
