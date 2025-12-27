@@ -2,6 +2,24 @@ import socket  #pythonun ağ iletişimi için kullandığı kütüph.
 import sqlite3
 import os #dosya işl. yönetmek için
 from PIL import Image #resmi LSB ile çözmek için
+from Crypto.Cipher import DES
+from Crypto.Util.Padding import pad, unpad
+import base64
+
+                   ###########  DES ALGORİTMASI (ŞİFRELEME/ÇÖZME) ###############
+def des_sifrele(mesaj,anahtar):
+    anahtar_8mb=anahtar.ljust(8)[:8].encode('utf-8')  #des anahtarı tam 8 byte olmalı
+    cipher=DES.new(anahtar_8mb, DES.MODE_ECB)
+    sifreli_byte = cipher.encrypt(pad(mesaj.encode('utf-8'), 8)) #mesajı 8in katı yap(padding) ve şifrele
+    return base64.b64encode(sifreli_byte).decode('utf-8') #byte verisini ağ üzerinden göndermek için metne(base64) çeviriyoruz.
+
+def des_coz(sifreli_metin,anahtar):
+    anahtar_8mb = anahtar.ljust(8)[:8].encode('utf-8')
+    cipher = DES.new(anahtar_8mb, DES.MODE_ECB)
+    sifreli_byte = base64.b64decode(sifreli_metin)
+    cozulmus_byte = unpad(cipher.decrypt(sifreli_byte), 8)
+    return cozulmus_byte.decode('utf-8')
+
 
 
 
@@ -116,37 +134,72 @@ def sunucuyu_baslat():
 
              ####### GİRİŞ KISMI ###########
         elif data.startswith("LOGIN"):
-            parcalar=data.split("|")
-
-            if len(parcalar) < 3:
-                baglanti.send("HATA|Eksik bilgi gönderildi!".encode())
-                baglanti.close()
-                continue
-
-            k_adi = parcalar[1]
-            girilen_sifre = parcalar[2]
-            print(f"Giriş isteği geldi: {k_adi}. Şifre kontrol ediliyor...")
+            parcalar = data.split("|")
+            k_adi = parcalar[1].strip() # Boşlukları temizle
+            girilen_sifre = parcalar[2].strip()
             
-            #2.Veritabanından bu kullanıcının gerçek şifresini çek
             conn = sqlite3.connect("sistem.db")
             cursor = conn.cursor()
             cursor.execute("SELECT anahtar FROM kullanicilar WHERE kullanici_adi=?", (k_adi,))
             sonuc = cursor.fetchone()
             
             if sonuc and sonuc[0] == girilen_sifre:
-                #3. Giriş başarılıysa tüm kullanıcıları al
                 cursor.execute("SELECT kullanici_adi FROM kullanicilar")
-                kullanicilar = cursor.fetchall() 
+                kullanici_listesi = ",".join([k[0] for k in cursor.fetchall()])
                 
-                kullanici_listesi = ",".join([k[0] for k in kullanicilar])
+                # ÖNEMLİ: Bu sorgu veritabanındaki tüm gidiş-dönüş mesajlarını bulur
+                cursor.execute("SELECT gonderen, alici, mesaj FROM mesajlar WHERE alici=? OR gonderen=?", (k_adi, k_adi))
+                mesaj_verileri = cursor.fetchall()
                 
-                baglanti.send(f"BASARILI|{kullanici_listesi}".encode())
-                print(f"Giriş Başarılı: {k_adi}")
+                gelen_paket = "#".join([f"{m[0]}|{m[1]}|{m[2]}" for m in mesaj_verileri])
+                
+                # Boş paket gönderilse bile formatın bozulmaması için:
+                baglanti.send(f"BASARILI|{kullanici_listesi}|{gelen_paket}".encode())
+                print(f"DEBUG: {k_adi} kullanıcısına {len(mesaj_verileri)} mesaj iletildi.")
             else:
-                baglanti.send("HATA|Kullanıcı adı veya şifre yanlış!".encode())
-                print(f"Giriş Başarısız: {k_adi}")
-            
+                baglanti.send("HATA|Giriş bilgileri yanlış!".encode())
             conn.close()
+
+
+
+        ######### MESAJ GÖNDERME / ÇÖZME / ŞİFRELEME #########
+      
+        elif data.startswith("SEND_MSG"):
+            parcalar = data.split("|")
+            # Değerleri alırken boşlukları temizle (Çok önemli!)
+            gnd = parcalar[1].strip()
+            alc = parcalar[2].strip()
+            sifreli_mesaj = parcalar[3]
+
+            conn = sqlite3.connect("sistem.db")
+            cursor = conn.cursor()
+            try:
+                # 1. Gönderen ve Alıcı anahtarlarını al
+                cursor.execute("SELECT anahtar FROM kullanicilar WHERE kullanici_adi=?", (gnd,))
+                c1_anahtar = cursor.fetchone()[0]
+                cursor.execute("SELECT anahtar FROM kullanicilar WHERE kullanici_adi=?", (alc,))
+                c2_anahtar = cursor.fetchone()[0]
+
+                # Orijinal mesajı çıkar (Gönderen anahtarıyla)
+                orijinal_mesaj = des_coz(sifreli_mesaj, c1_anahtar)
+
+                # İki kopya kaydet: Biri alıcı için, biri gönderen için (geçmişi görmek adına)
+                # Alıcı için şifrele
+                msg_alc = des_sifrele(orijinal_mesaj, c2_anahtar)
+                cursor.execute("INSERT INTO mesajlar (gonderen, alici, mesaj) VALUES (?, ?, ?)", (gnd, alc, msg_alc))
+                
+                # Gönderen için şifrele
+                msg_gnd = des_sifrele(orijinal_mesaj, c1_anahtar)
+                cursor.execute("INSERT INTO mesajlar (gonderen, alici, mesaj) VALUES (?, ?, ?)", (gnd, alc, msg_gnd))
+
+                conn.commit()
+                print(f"DEBUG: {gnd} -> {alc} mesajı DB'ye çift taraflı kaydedildi.")
+            except Exception as e:
+                print(f"DEBUG: Mesaj kaydetme hatası: {e}")
+            finally:
+                conn.close()
+
+        
 
         baglanti.close() #Sadece o anki bağlantıyı kapatır, sunucu (server) açık kalır.
 

@@ -3,7 +3,26 @@ from tkinter import *
 from tkinter import filedialog, messagebox #dosya seçme penceresi ve uyarı mesajları için
 from PIL import Image  
 import os       
-import time  #sunucuyla veri alışverişinde kısa beklemeler eklemek için      
+import time  #sunucuyla veri alışverişinde kısa beklemeler eklemek için    
+from Crypto.Cipher import DES
+from Crypto.Util.Padding import pad, unpad
+import base64
+
+
+                   ###########  DES ALGORİTMASI (ŞİFRELEME/ÇÖZME) ###############
+def des_sifrele(mesaj,anahtar):
+    anahtar_8mb=anahtar.ljust(8)[:8].encode('utf-8')  #des anahtarı tam 8 byte olmalı
+    cipher=DES.new(anahtar_8mb, DES.MODE_ECB)
+    sifreli_byte = cipher.encrypt(pad(mesaj.encode('utf-8'), 8)) #mesajı 8in katı yap(padding) ve şifrele
+    return base64.b64encode(sifreli_byte).decode('utf-8') #byte verisini ağ üzerinden göndermek için metne(base64) çeviriyoruz.
+
+def des_coz(sifreli_metin,anahtar):
+    anahtar_8mb = anahtar.ljust(8)[:8].encode('utf-8')
+    cipher = DES.new(anahtar_8mb, DES.MODE_ECB)
+    sifreli_byte = base64.b64decode(sifreli_metin)
+    cozulmus_byte = unpad(cipher.decrypt(sifreli_byte), 8)
+    return cozulmus_byte.decode('utf-8')
+
 
             ########## LSB GİZLEME FONKSİYONU ############
 def lsb_gizle(resim_yolu, sifre, cikis_adi="gonderilecek.png"):
@@ -29,7 +48,6 @@ def lsb_gizle(resim_yolu, sifre, cikis_adi="gonderilecek.png"):
     yeni_img.putdata(yeni_veriler)           # Hazırlanan pikselleri resme yerleştir
     yeni_img.save(cikis_adi, "PNG")          # Veri kaybı olmaması için PNG olarak kaydet
     return cikis_adi
-
 
 
 
@@ -74,6 +92,126 @@ def kayit_ol():   #arayüzdeki değerleri alıyoruz.
         messagebox.showerror("Hata", f"Bağlantı hatası: {e}")
 
 
+
+
+
+########## MESAJLAŞMA KISMI KULLANICI LİSTESİ VE MESAJ YAZMA YERİ ARAYÜZÜ #############
+
+def mesajlasma_penceresini_ac(kullanici_adi, aktif_kullanicilar, kendi_sifren, gelen_mesajlar_paketi):
+    root.withdraw()
+    mesaj_penceresi = Toplevel()
+    mesaj_penceresi.title(f"Mesajlaşma Paneli - {kullanici_adi}")
+    mesaj_penceresi.geometry("600x450")
+
+    #sunucudan gelen tüm mesajları bir liste nesnesine dönüştürelim
+    tum_mesajlar = []
+    if gelen_mesajlar_paketi and len(gelen_mesajlar_paketi.strip()) > 0:
+        print(f"Sunucudan Gelen Ham Veri: {gelen_mesajlar_paketi}")
+        parcalar = gelen_mesajlar_paketi.split("#")
+        for p in parcalar:
+            detay = p.split("|")
+            if len(detay) == 3:
+                tum_mesajlar.append({"gnd": detay[0], "alc": detay[1], "msg": detay[2]})
+    else:
+        print("Görüntülenecek mesaj bulunamadı.")
+
+    # --- SOL TARAF: KULLANICI LİSTESİ ---
+    frame_sol = Frame(mesaj_penceresi)
+    frame_sol.pack(side=LEFT, fill=Y, padx=10, pady=10)
+    Label(frame_sol, text="Kullanıcılar", font=("Arial", 10, "bold")).pack()
+    lb_kullanicilar = Listbox(frame_sol, width=20, height=20)
+    lb_kullanicilar.pack(pady=5)
+    
+    for user in aktif_kullanicilar.split("\n"):
+        if user and user != kullanici_adi: 
+            lb_kullanicilar.insert(END, user)
+
+    # --- SAĞ TARAF: MESAJLAŞMA ALANI ---
+    frame_sag = Frame(mesaj_penceresi)
+    frame_sag.pack(side=RIGHT, fill=BOTH, expand=True, padx=10, pady=10)
+    lbl_sohbet_baslik = Label(frame_sag, text="Lütfen bir kullanıcı seçin", font=("Arial", 10, "bold"))
+    lbl_sohbet_baslik.pack()
+    
+    mesaj_alani = Text(frame_sag, width=40, height=15, state=DISABLED, bg="#f0f0f0")
+    mesaj_alani.pack(pady=5, fill=BOTH, expand=True)
+    mesaj_alani.tag_config("giden", foreground="green")
+    mesaj_alani.tag_config("gelen", foreground="blue")
+
+    # --- FİLTRELEME FONKSİYONU ---
+    def sohbeti_yukle(event):
+        secili_index = lb_kullanicilar.curselection()
+        if not secili_index: return
+        
+        hedef_kisi = lb_kullanicilar.get(secili_index)
+        lbl_sohbet_baslik.config(text=f"{hedef_kisi} ile Sohbet")
+        
+        mesaj_alani.config(state=NORMAL)
+        mesaj_alani.delete('1.0', END) # Önceki yazıları temizle
+        
+        for m in tum_mesajlar:
+            if (m["gnd"] == hedef_kisi and m["alc"] == kullanici_adi) or \
+               (m["gnd"] == kullanici_adi and m["alc"] == hedef_kisi):
+                
+                mesaj_alani.config(state=NORMAL)
+                try:
+                    # Kendi anahtarımızla çözmeye çalış
+                    cozulmus = des_coz(m["msg"], kendi_sifren)
+                    if m["alc"] == kullanici_adi:
+                        mesaj_alani.insert(END, f"[{m['gnd']}]: {cozulmus}\n", "gelen")
+                    else:
+                        mesaj_alani.insert(END, f"[Sen]: {cozulmus}\n", "giden")
+                except Exception as e:
+                    # Çözemezse hatayı ve şifreli hali yazdır (Hata ayıklama için)
+                    mesaj_alani.insert(END, f"[{m['gnd']}]: [Kilitli Mesaj: {m['msg'][:10]}...]\n")
+                    print(f"Deşifre Hatası: {e}")
+                mesaj_alani.config(state=DISABLED)
+                  
+        mesaj_alani.see(END)
+
+    # Listbox'a tıklama olayını bağla
+    lb_kullanicilar.bind('<<ListboxSelect>>', sohbeti_yukle)
+
+    # --- MESAJ GÖNDERME KISMI ---
+    frame_alt = Frame(frame_sag)
+    frame_alt.pack(fill=X, pady=5)
+    mesaj_giris = Entry(frame_alt)
+    mesaj_giris.pack(side=LEFT, fill=X, expand=True)
+
+    def mesaj_gonder_butonu():
+        secili_index = lb_kullanicilar.curselection()
+        if not secili_index:
+            messagebox.showwarning("Hata", "Lütfen bir alıcı seçin!")
+            return
+        
+        hedef_kisi = lb_kullanicilar.get(secili_index)
+        mesaj = mesaj_giris.get()
+        if not mesaj: return
+
+        try:
+            sifreli_mesaj = des_sifrele(mesaj, kendi_sifren)
+            istemci = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            istemci.connect(('localhost', 12345))
+            paket = f"SEND_MSG|{kullanici_adi}|{hedef_kisi}|{sifreli_mesaj}"
+            istemci.send(paket.encode())
+            istemci.close()
+            
+            # Kendi ekranımızı hemen güncellemek için listeye ekle
+            tum_mesajlar.append({"gnd": kullanici_adi, "alc": hedef_kisi, "msg": sifreli_mesaj})
+            sohbeti_yukle(None) # Ekranı tazele
+            mesaj_giris.delete(0, END)
+        except Exception as e:
+            messagebox.showerror("Hata", f"Hata: {e}")
+
+    Button(frame_alt, text="Gönder", command=mesaj_gonder_butonu, bg="green", fg="white").pack(side=RIGHT, padx=5)
+    mesaj_penceresi.protocol("WM_DELETE_WINDOW", lambda: root.destroy())
+    
+
+
+
+
+
+
+
 def giris_yap():
     k_adi = entry_kullanici.get()
     sifre = entry_sifre.get()
@@ -91,9 +229,9 @@ def giris_yap():
 
         if cevap.startswith("BASARILI"):
             parcalar = cevap.split("|")
-            liste = parcalar[1] if len(parcalar) > 1 else ""
-            temiz_liste = liste.replace(',', '\n')
-            messagebox.showinfo("Giriş Başarılı", f"Sistemdeki Kullanıcılar:\n{temiz_liste}")
+            temiz_liste = parcalar[1].replace(',', '\n')
+            gelen_mesajlar_paketi = parcalar[2] if len(parcalar) > 2 else ""
+            mesajlasma_penceresini_ac(k_adi, temiz_liste, sifre, gelen_mesajlar_paketi) #pencereyi açarken mesaj paketini de gönderiyoruz.
         else:
             hata_mesaji = cevap.split("|")[1] if "|" in cevap else "Bilinmeyen hata"
             messagebox.showerror("Hata", hata_mesaji)
@@ -102,6 +240,9 @@ def giris_yap():
         istemci.close()
     except Exception as e:
         messagebox.showerror("Hata", f"Giriş sırasında hata: {e}")
+
+
+
 
 
 
@@ -136,5 +277,3 @@ Button(root, text="KAYIT OL", command=kayit_ol, bg="green", fg="white", width=20
 
 
 root.mainloop()
-
-
