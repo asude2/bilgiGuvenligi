@@ -212,6 +212,44 @@ def mesajlasma_penceresini_ac(kullanici_adi, aktif_kullanicilar, kendi_sifren, g
 
 
 
+<<<<<<< Updated upstream
+=======
+
+
+
+    def mesajlari_yenile():
+        try:
+            istemci = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            istemci.connect(('localhost', 12345))
+            istemci.send(f"MESAJLARI_GETIR|{kullanici_adi}".encode())
+            gelen_veri = istemci.recv(8192).decode()
+            
+            if gelen_veri == "MESAJ_YOK":
+                messagebox.showinfo("Bilgi", "Henüz mesajınız yok.")
+                return
+
+            # Yeni bir pencerede mesajları göster
+            box = tk.Toplevel(msg_pencere)
+            box.title("Gelen Kutusu")
+            st = scrolledtext.ScrolledText(box, width=40, height=10)
+            st.pack()
+
+            for m_paketi in gelen_veri.split('|'):
+                if ":" in m_paketi:
+                    gonderen, hex_mesaj = m_paketi.split(':')
+                    # Hex'ten tekrar byte'a çevir ve DES ile çöz
+                    sifreli_byte = bytes.fromhex(hex_mesaj)
+                    cozulmus = des_coz(sifreli_byte, anahtar)
+                    st.insert(tk.END, f"Kimden: {gonderen}\nMesaj: {cozulmus}\n{'-'*20}\n")
+            
+            istemci.close()
+        except Exception as e:
+            messagebox.showerror("Hata", f"Mesajlar alınamadı: {e}")
+
+    tk.Button(msg_pencere, text="MESAJLARI KONTROL ET", command=mesajlari_yenile, bg="orange").pack(pady=5)
+
+# ########## GİRİŞ YAP ##########
+>>>>>>> Stashed changes
 def giris_yap():
     k_adi = entry_kullanici.get()
     sifre = entry_sifre.get()
@@ -246,16 +284,27 @@ def giris_yap():
 
 
 
+<<<<<<< Updated upstream
        ############# RESİM SEÇME PENCERESİ ################
+=======
+>>>>>>> Stashed changes
 def resim_sec():
     yol = filedialog.askopenfilename(filetypes=[("Resim Dosyaları", "*.png *.jpg *.jpeg")])
     if yol:
         label_resim_yolu.config(text=yol)
 
+<<<<<<< Updated upstream
         ############ ARAYÜZ TASARIMI ############
 root = Tk()
 root.title("Kayıt Ol / Giriş Yap")
 root.geometry("400x300")
+=======
+
+# ########## ANA ARAYÜZ ##########
+root = tk.Tk()
+root.title("Kayıt/Giriş")
+root.geometry("400x400")
+>>>>>>> Stashed changes
 
 Label(root, text="Kullanıcı Adı:").pack(pady=5)
 entry_kullanici = Entry(root)

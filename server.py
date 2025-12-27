@@ -201,7 +201,29 @@ def sunucuyu_baslat():
 
         
 
+<<<<<<< Updated upstream
         baglanti.close() #Sadece o anki bağlantıyı kapatır, sunucu (server) açık kalır.
+=======
+        # 4. MESAJLARI ÇEKME KISMI
+        elif data.startswith("MESAJLARI_GETIR"):
+            k_adi = data.split("|")[1]
+            conn = sqlite3.connect("sistem.db")
+            cursor = conn.cursor()
+            # Bu kullanıcıya gelen mesajları bul
+            cursor.execute("SELECT gonderen, mesaj FROM mesajlar WHERE alici=?", (k_adi,))
+            mesajlar = cursor.fetchall()
+            
+            # Mesajları 'gonderen:mesaj_byte' formatında birleştirip gönder
+            yanit = ""
+            for m in mesajlar:
+                # m[1] (mesaj) binary olduğu için hex formatına çevirip yolluyoruz
+                yanit += f"{m[0]}:{m[1].hex()}|"
+            
+            baglanti.send(yanit.encode() if yanit else "MESAJ_YOK".encode())
+            conn.close()
+
+        baglanti.close()
+>>>>>>> Stashed changes
 
 #Eğer bu dosya doğrudan çalıştırılıyorsa sunucuyu başlat
 if __name__ == "__main__":
